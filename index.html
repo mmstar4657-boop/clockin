@@ -12,9 +12,9 @@
 <meta http-equiv="Cache-Control" content="no-cache">
 <!-- build v3: self-contained; app.js and style.css are copies, not loaded -->
 <title>Clock In</title>
-<link rel="manifest" href="manifest.webmanifest?v=5">
-<link rel="icon" href="icons/icon-192.png?v=5">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=5">
+<link rel="manifest" href="manifest.webmanifest?v=6">
+<link rel="icon" href="icons/icon-192.png?v=6">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=6">
 <style>
 :root{
   --bg:#eef3fb; --card:#fff; --ink:#0b1f4d; --text:#1e293b; --muted:#64748b; --line:#e3e9f3;
@@ -216,7 +216,7 @@ html.clk-ok .nojs-fail{display:none!important}
 <body>
 <div id="login" class="login">
   <div class="login-card">
-    <img src="icons/icon-192.png?v=5" alt="" class="login-icon">
+    <img src="icons/icon-192.png?v=6" alt="" class="login-icon">
     <h1>Clock In</h1>
     <p class="muted">Enter your password</p>
     <form id="loginForm" autocomplete="on">
@@ -232,7 +232,7 @@ html.clk-ok .nojs-fail{display:none!important}
 
 <div id="shell" class="shell" hidden>
   <aside class="side">
-    <div class="brand"><img src="icons/icon-192.png?v=5" alt=""><span>Clock In</span></div>
+    <div class="brand"><img src="icons/icon-192.png?v=6" alt=""><span>Clock In</span></div>
     <nav class="nav" id="nav"></nav>
     <button class="nav-out" id="logoutSide"></button>
   </aside>
@@ -248,7 +248,7 @@ html.clk-ok .nojs-fail{display:none!important}
 
 <div id="bootErr" class="login boot-err" hidden>
   <div class="login-card">
-    <img src="icons/icon-192.png?v=5" alt="" class="login-icon">
+    <img src="icons/icon-192.png?v=6" alt="" class="login-icon">
     <h1>Clock In</h1>
     <button class="btn primary wide" type="button" onclick="__clkRetry()">Couldn't load, tap to retry</button>
     <p class="small" id="bootErrMsg"></p>
@@ -381,6 +381,18 @@ try {
     const COLORS = ["#2563eb", "#ef4444", "#16a34a", "#7c3aed", "#f59e0b", "#0891b2", "#db2777", "#0b1f4d"];
     const ic = (n, cls = "i") => '<svg class="'.concat(cls, '" viewBox="0 0 24 24">').concat(P[n] || P.briefcase, "</svg>");
     const playIc = (on) => '<svg viewBox="0 0 24 24">'.concat(on ? P.pause : P.play, "</svg>");
+    function viaHistory(path, method) {
+      const q = path.indexOf("?");
+      const p = q < 0 ? path : path.slice(0, q);
+      const qs = q < 0 ? "" : path.slice(q + 1);
+      if (p === "/login" || p === "/history" && method === "GET") return null;
+      const seg = p.replace(/^\/+/, "").split("/");
+      let u = "/history?op=" + encodeURIComponent(seg[0]);
+      if (seg.length > 1) u += "&id=" + encodeURIComponent(seg.slice(1).join("-"));
+      if (method !== "GET" && method !== "POST") u += "&m=" + method;
+      if (qs) u += "&" + qs;
+      return { url: u, method: method === "GET" ? "GET" : "POST" };
+    }
     async function api(path, opts = {}) {
       const headers = { "content-type": "application/json" };
       if (token) headers.authorization = "Bearer " + token;
@@ -389,8 +401,12 @@ try {
         timer = setTimeout(() => rej(new Error("__clk_timeout")), opts.timeout || 25e3);
       });
       const tooSlow = new Error("The server took too long to answer (" + path.split("?")[0] + "). Check your internet and try again.");
+      const method = opts.method || "GET";
+      const init = (m) => ({ method: m, headers, body: opts.body ? JSON.stringify(opts.body) : void 0, cache: "no-store" });
+      const t = viaHistory(path, method);
+      const go = () => t ? fetch(API + t.url, init(t.method)).catch(() => fetch(API + path, init(method))) : fetch(API + path, init(method));
       try {
-        r = await Promise.race([fetch(API + path, { method: opts.method || "GET", headers, body: opts.body ? JSON.stringify(opts.body) : void 0, cache: "no-store" }), slow]);
+        r = await Promise.race([go(), slow]);
       } catch (e) {
         clearTimeout(timer);
         if (e && e.message === "__clk_timeout") throw tooSlow;
@@ -738,8 +754,8 @@ try {
         try {
           if ("Notification" in window && Notification.permission === "granted") {
             const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
-            if (reg) reg.showNotification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=5" });
-            else new Notification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=5" });
+            if (reg) reg.showNotification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=6" });
+            else new Notification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=6" });
           }
         } catch (_) {
         }
@@ -1077,7 +1093,7 @@ try {
     }
     function regSW() {
       try {
-        if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=5").catch(() => {
+        if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=6").catch(() => {
         });
       } catch (_) {
       }

@@ -65,6 +65,18 @@ try {
     const COLORS = ["#2563eb", "#ef4444", "#16a34a", "#7c3aed", "#f59e0b", "#0891b2", "#db2777", "#0b1f4d"];
     const ic = (n, cls = "i") => '<svg class="'.concat(cls, '" viewBox="0 0 24 24">').concat(P[n] || P.briefcase, "</svg>");
     const playIc = (on) => '<svg viewBox="0 0 24 24">'.concat(on ? P.pause : P.play, "</svg>");
+    function viaHistory(path, method) {
+      const q = path.indexOf("?");
+      const p = q < 0 ? path : path.slice(0, q);
+      const qs = q < 0 ? "" : path.slice(q + 1);
+      if (p === "/login" || p === "/history" && method === "GET") return null;
+      const seg = p.replace(/^\/+/, "").split("/");
+      let u = "/history?op=" + encodeURIComponent(seg[0]);
+      if (seg.length > 1) u += "&id=" + encodeURIComponent(seg.slice(1).join("-"));
+      if (method !== "GET" && method !== "POST") u += "&m=" + method;
+      if (qs) u += "&" + qs;
+      return { url: u, method: method === "GET" ? "GET" : "POST" };
+    }
     async function api(path, opts = {}) {
       const headers = { "content-type": "application/json" };
       if (token) headers.authorization = "Bearer " + token;
@@ -73,8 +85,12 @@ try {
         timer = setTimeout(() => rej(new Error("__clk_timeout")), opts.timeout || 25e3);
       });
       const tooSlow = new Error("The server took too long to answer (" + path.split("?")[0] + "). Check your internet and try again.");
+      const method = opts.method || "GET";
+      const init = (m) => ({ method: m, headers, body: opts.body ? JSON.stringify(opts.body) : void 0, cache: "no-store" });
+      const t = viaHistory(path, method);
+      const go = () => t ? fetch(API + t.url, init(t.method)).catch(() => fetch(API + path, init(method))) : fetch(API + path, init(method));
       try {
-        r = await Promise.race([fetch(API + path, { method: opts.method || "GET", headers, body: opts.body ? JSON.stringify(opts.body) : void 0, cache: "no-store" }), slow]);
+        r = await Promise.race([go(), slow]);
       } catch (e) {
         clearTimeout(timer);
         if (e && e.message === "__clk_timeout") throw tooSlow;
@@ -422,8 +438,8 @@ try {
         try {
           if ("Notification" in window && Notification.permission === "granted") {
             const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
-            if (reg) reg.showNotification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=4" });
-            else new Notification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=4" });
+            if (reg) reg.showNotification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=6" });
+            else new Notification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=6" });
           }
         } catch (_) {
         }
@@ -761,7 +777,7 @@ try {
     }
     function regSW() {
       try {
-        if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=4").catch(() => {
+        if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=6").catch(() => {
         });
       } catch (_) {
       }

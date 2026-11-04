@@ -12,9 +12,9 @@
 <meta http-equiv="Cache-Control" content="no-cache">
 <!-- build v3: self-contained; app.js and style.css are copies, not loaded -->
 <title>Clock In</title>
-<link rel="manifest" href="manifest.webmanifest?v=4">
-<link rel="icon" href="icons/icon-192.png?v=4">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=4">
+<link rel="manifest" href="manifest.webmanifest?v=5">
+<link rel="icon" href="icons/icon-192.png?v=5">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=5">
 <style>
 :root{
   --bg:#eef3fb; --card:#fff; --ink:#0b1f4d; --text:#1e293b; --muted:#64748b; --line:#e3e9f3;
@@ -216,7 +216,7 @@ html.clk-ok .nojs-fail{display:none!important}
 <body>
 <div id="login" class="login">
   <div class="login-card">
-    <img src="icons/icon-192.png?v=4" alt="" class="login-icon">
+    <img src="icons/icon-192.png?v=5" alt="" class="login-icon">
     <h1>Clock In</h1>
     <p class="muted">Enter your password</p>
     <form id="loginForm" autocomplete="on">
@@ -232,7 +232,7 @@ html.clk-ok .nojs-fail{display:none!important}
 
 <div id="shell" class="shell" hidden>
   <aside class="side">
-    <div class="brand"><img src="icons/icon-192.png?v=4" alt=""><span>Clock In</span></div>
+    <div class="brand"><img src="icons/icon-192.png?v=5" alt=""><span>Clock In</span></div>
     <nav class="nav" id="nav"></nav>
     <button class="nav-out" id="logoutSide"></button>
   </aside>
@@ -248,7 +248,7 @@ html.clk-ok .nojs-fail{display:none!important}
 
 <div id="bootErr" class="login boot-err" hidden>
   <div class="login-card">
-    <img src="icons/icon-192.png?v=4" alt="" class="login-icon">
+    <img src="icons/icon-192.png?v=5" alt="" class="login-icon">
     <h1>Clock In</h1>
     <button class="btn primary wide" type="button" onclick="__clkRetry()">Couldn't load, tap to retry</button>
     <p class="small" id="bootErrMsg"></p>
@@ -499,8 +499,38 @@ try {
       route();
     }
     $("logoutSide").addEventListener("click", logout);
+    function unwrap(b64) {
+      const bin = atob(String(b64 || ""));
+      let txt;
+      if (typeof TextDecoder !== "undefined") {
+        const u = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        txt = new TextDecoder("utf-8").decode(u);
+      } else {
+        txt = decodeURIComponent(escape(bin));
+      }
+      return JSON.parse(txt);
+    }
+    async function fetchState() {
+      let first;
+      try {
+        const w = await api("/h2");
+        const d = unwrap(w.d);
+        if (d && typeof d === "object") return d;
+        first = new Error("Unexpected answer from the server.");
+      } catch (e) {
+        if (!token) throw e;
+        first = e;
+      }
+      try {
+        return await api("/state");
+      } catch (e2) {
+        if (!token) throw e2;
+        throw first;
+      }
+    }
     async function loadState() {
-      const d = await api("/state");
+      const d = await fetchState();
       if (!d.settings || typeof d.settings !== "object" || !Array.isArray(d.agencies)) throw new Error("The server's answer was missing the app settings. Try again.");
       S = d;
     }
@@ -708,8 +738,8 @@ try {
         try {
           if ("Notification" in window && Notification.permission === "granted") {
             const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
-            if (reg) reg.showNotification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=4" });
-            else new Notification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=4" });
+            if (reg) reg.showNotification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=5" });
+            else new Notification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=5" });
           }
         } catch (_) {
         }
@@ -1047,7 +1077,7 @@ try {
     }
     function regSW() {
       try {
-        if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=4").catch(() => {
+        if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=5").catch(() => {
         });
       } catch (_) {
       }

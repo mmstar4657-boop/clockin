@@ -12,9 +12,9 @@
 <meta http-equiv="Cache-Control" content="no-cache">
 <!-- build v3: self-contained; app.js and style.css are copies, not loaded -->
 <title>Clock In</title>
-<link rel="manifest" href="manifest.webmanifest?v=6">
-<link rel="icon" href="icons/icon-192.png?v=6">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=6">
+<link rel="manifest" href="manifest.webmanifest?v=7">
+<link rel="icon" href="icons/icon-192.png?v=7">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=7">
 <style>
 :root{
   --bg:#eef3fb; --card:#fff; --ink:#0b1f4d; --text:#1e293b; --muted:#64748b; --line:#e3e9f3;
@@ -216,7 +216,7 @@ html.clk-ok .nojs-fail{display:none!important}
 <body>
 <div id="login" class="login">
   <div class="login-card">
-    <img src="icons/icon-192.png?v=6" alt="" class="login-icon">
+    <img src="icons/icon-192.png?v=7" alt="" class="login-icon">
     <h1>Clock In</h1>
     <p class="muted">Enter your password</p>
     <form id="loginForm" autocomplete="on">
@@ -232,7 +232,7 @@ html.clk-ok .nojs-fail{display:none!important}
 
 <div id="shell" class="shell" hidden>
   <aside class="side">
-    <div class="brand"><img src="icons/icon-192.png?v=6" alt=""><span>Clock In</span></div>
+    <div class="brand"><img src="icons/icon-192.png?v=7" alt=""><span>Clock In</span></div>
     <nav class="nav" id="nav"></nav>
     <button class="nav-out" id="logoutSide"></button>
   </aside>
@@ -248,7 +248,7 @@ html.clk-ok .nojs-fail{display:none!important}
 
 <div id="bootErr" class="login boot-err" hidden>
   <div class="login-card">
-    <img src="icons/icon-192.png?v=6" alt="" class="login-icon">
+    <img src="icons/icon-192.png?v=7" alt="" class="login-icon">
     <h1>Clock In</h1>
     <button class="btn primary wide" type="button" onclick="__clkRetry()">Couldn't load, tap to retry</button>
     <p class="small" id="bootErrMsg"></p>
@@ -316,7 +316,7 @@ html.clk-ok .nojs-fail{display:none!important}
 <script>
 try {
   (() => {
-    const API = "https://xgxswoaxalhdfjjxelyt.supabase.co/functions/v1/clockin-api";
+    const API = /(^|\.)dayswon\.com$/.test(location.hostname) ? "/api" : "https://xgxswoaxalhdfjjxelyt.supabase.co/functions/v1/clockin-api";
     const $ = (id) => document.getElementById(id);
     const TOKEN_KEY = "clk_token";
     const mem = {};
@@ -754,8 +754,8 @@ try {
         try {
           if ("Notification" in window && Notification.permission === "granted") {
             const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
-            if (reg) reg.showNotification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=6" });
-            else new Notification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=6" });
+            if (reg) reg.showNotification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=7" });
+            else new Notification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=7" });
           }
         } catch (_) {
         }
@@ -1093,7 +1093,7 @@ try {
     }
     function regSW() {
       try {
-        if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=6").catch(() => {
+        if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=7").catch(() => {
         });
       } catch (_) {
       }

@@ -1,6 +1,6 @@
 try {
   (() => {
-    const API = "https://xgxswoaxalhdfjjxelyt.supabase.co/functions/v1/clockin-api";
+    const API = /(^|\.)dayswon\.com$/.test(location.hostname) ? "/api" : "https://xgxswoaxalhdfjjxelyt.supabase.co/functions/v1/clockin-api";
     const $ = (id) => document.getElementById(id);
     const TOKEN_KEY = "clk_token";
     const mem = {};

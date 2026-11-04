@@ -3,7 +3,31 @@ try {
     const API = "https://xgxswoaxalhdfjjxelyt.supabase.co/functions/v1/clockin-api";
     const $ = (id) => document.getElementById(id);
     const TOKEN_KEY = "clk_token";
-    let token = localStorage.getItem(TOKEN_KEY) || "";
+    const mem = {};
+    const store = {
+      get: (k) => {
+        try {
+          return localStorage.getItem(k);
+        } catch (_) {
+          return mem[k] == null ? null : mem[k];
+        }
+      },
+      set: (k, v) => {
+        try {
+          localStorage.setItem(k, v);
+        } catch (_) {
+          mem[k] = String(v);
+        }
+      },
+      del: (k) => {
+        try {
+          localStorage.removeItem(k);
+        } catch (_) {
+          delete mem[k];
+        }
+      }
+    };
+    let token = store.get(TOKEN_KEY) || "";
     let S = null;
     let busy = false, cur = null;
     let range = 7, page = 0, attRows = [], attAll = [];
@@ -44,20 +68,44 @@ try {
     async function api(path, opts = {}) {
       const headers = { "content-type": "application/json" };
       if (token) headers.authorization = "Bearer " + token;
-      let r;
+      let r, timer = null;
+      const slow = new Promise((_, rej) => {
+        timer = setTimeout(() => rej(new Error("__clk_timeout")), opts.timeout || 25e3);
+      });
+      const tooSlow = new Error("The server took too long to answer (" + path.split("?")[0] + "). Check your internet and try again.");
       try {
-        r = await fetch(API + path, { method: opts.method || "GET", headers, body: opts.body ? JSON.stringify(opts.body) : void 0, cache: "no-store" });
+        r = await Promise.race([fetch(API + path, { method: opts.method || "GET", headers, body: opts.body ? JSON.stringify(opts.body) : void 0, cache: "no-store" }), slow]);
       } catch (e) {
-        throw new Error("No connection. Check your internet and try again.");
+        clearTimeout(timer);
+        if (e && e.message === "__clk_timeout") throw tooSlow;
+        throw new Error("No connection. Check your internet and try again." + (e && e.message ? " (" + e.message + ")" : ""));
       }
       if (opts.raw) {
+        clearTimeout(timer);
         if (r.status === 401) logout();
         return r;
       }
-      const data = await r.json().catch(() => ({}));
+      let text = "", data = null;
+      try {
+        text = await Promise.race([r.text(), slow]);
+      } catch (e) {
+        clearTimeout(timer);
+        if (e && e.message === "__clk_timeout") throw tooSlow;
+        throw new Error("The answer from the server was cut off (" + r.status + "). Check your internet and try again.");
+      }
+      clearTimeout(timer);
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch (_) {
+        data = null;
+      }
       if (r.status === 401 && path !== "/login") {
         logout();
         throw new Error("Please log in again");
+      }
+      if (!data || typeof data !== "object") {
+        const peek = String(text || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 90);
+        throw new Error("Unexpected answer from the server (" + r.status + (peek ? ": " + peek : ", empty") + "). A filter on this network may be blocking it.");
       }
       if (!r.ok || data.ok === false) throw new Error(data.error || "Error " + r.status);
       return data;
@@ -113,11 +161,16 @@ try {
       try {
         const d = await api("/login", { method: "POST", body: { password: $("pw").value } });
         token = d.token;
-        localStorage.setItem(TOKEN_KEY, token);
+        store.set(TOKEN_KEY, token);
         $("pw").value = "";
-        await loadState();
-        location.hash = "#clock";
-        route();
+        stateErr = null;
+        try {
+          await loadStateOnce();
+        } catch (e2) {
+          stateErr = e2;
+        }
+        if (location.hash === "#clock") route();
+        else location.hash = "#clock";
       } catch (err) {
         $("loginErr").textContent = err.message;
         $("loginErr").hidden = false;
@@ -125,13 +178,85 @@ try {
     });
     function logout() {
       token = "";
-      localStorage.removeItem(TOKEN_KEY);
+      store.del(TOKEN_KEY);
       S = null;
       route();
     }
     $("logoutSide").addEventListener("click", logout);
     async function loadState() {
-      S = await api("/state");
+      const d = await api("/state");
+      if (!d.settings || typeof d.settings !== "object" || !Array.isArray(d.agencies)) throw new Error("The server's answer was missing the app settings. Try again.");
+      S = d;
+    }
+    let statePending = null, stateErr = null;
+    function loadStateOnce() {
+      if (!statePending) {
+        statePending = loadState().then(() => {
+          statePending = null;
+        }, (e) => {
+          statePending = null;
+          throw e;
+        });
+      }
+      return statePending;
+    }
+    function errParts(e) {
+      let m = "Unknown error", st = "";
+      try {
+        m = String(e && (e.message || e.reason && e.reason.message) || e || "Unknown error");
+      } catch (_) {
+      }
+      try {
+        const lines = e && e.stack ? String(e.stack).split("\n").map((l) => l.trim()).filter((l) => l && l !== "@" && l.indexOf(m) === -1) : [];
+        st = lines[0] || "";
+      } catch (_) {
+      }
+      return { m, st };
+    }
+    function viewError(id, title, e, retry) {
+      const el = $(id);
+      if (!el) return;
+      const p = errParts(e);
+      el.innerHTML = '<div class="card view-err"><h2>'.concat(esc(title), '</h2><p class="err">').concat(esc(p.m), "</p>").concat(p.st ? '<p class="muted small err-stack">'.concat(esc(p.st), "</p>") : "", '<button class="btn primary wide" type="button" data-retry>Retry</button></div>');
+      const b = el.querySelector("[data-retry]");
+      if (b) b.onclick = retry;
+    }
+    function viewLoading(id) {
+      const el = $(id);
+      if (el) el.innerHTML = '<div class="card"><div class="empty">Loading\u2026</div></div>';
+    }
+    function safeDraw(id, title, draw, retry) {
+      try {
+        draw();
+      } catch (e) {
+        try {
+          console.error(e);
+        } catch (_) {
+        }
+        viewError(id, "Couldn't show " + title, e, retry);
+      }
+    }
+    function withState(id, title, draw, fresh) {
+      const again = () => withState(id, title, draw, true);
+      if (S && !fresh) {
+        safeDraw(id, title, draw, again);
+        return;
+      }
+      if (stateErr) {
+        const e = stateErr;
+        stateErr = null;
+        viewError(id, "Couldn't load " + title, e, again);
+        return;
+      }
+      viewLoading(id);
+      loadStateOnce().then(
+        () => {
+          if (token) safeDraw(id, title, draw, again);
+        },
+        (e) => {
+          if (token) viewError(id, "Couldn't load " + title, e, again);
+        }
+      );
     }
     function sheet(html) {
       $("sheetCard").innerHTML = html;
@@ -161,8 +286,8 @@ try {
     function resultHtml() {
       const a = cur || (S == null ? void 0 : S.last);
       if (!a) return { k: "idle", i: "&#128222;", t: "Ready", s: "Tap an agency when you start or stop work" };
-      const who = a.agency_name ? " · ".concat(a.agency_name) : "";
-      if (a.status === "done") return { k: "ok", i: "&#9989;", t: "".concat(verb(a.action), " ").concat(fmtTime(a.created_at)), s: (isToday(a.created_at) ? "" : fmtDayShort(a.created_at) + " · ") + (a.agency_name || "") + (a.mode === "test" ? " · Test mode, no real call" : " · All keys sent") };
+      const who = a.agency_name ? " \xB7 ".concat(a.agency_name) : "";
+      if (a.status === "done") return { k: "ok", i: "&#9989;", t: "".concat(verb(a.action), " ").concat(fmtTime(a.created_at)), s: (isToday(a.created_at) ? "" : fmtDayShort(a.created_at) + " \xB7 ") + (a.agency_name || "") + (a.mode === "test" ? " \xB7 Test mode, no real call" : " \xB7 All keys sent") };
       if (a.status === "failed") return { k: "bad", i: "&#10060;", t: "Failed, try again", s: (a.stage || "") + who };
       return { k: "busy", i: '<div class="spin"></div>', t: a.stage || "Calling...", s: (a.action === "in" ? "Clock in" : a.action === "out" ? "Clock out" : "Test call") + who };
     }
@@ -176,13 +301,15 @@ try {
       const o = openFor(a.id);
       let sub = pretty(a.clock_number), cls = "";
       if (o) {
-        sub = kind === "out" ? "In since ".concat(fmtTime(o.since), " · ").concat(dur(Date.now() - new Date(o.since))) : "Clocked in at ".concat(fmtTime(o.since));
+        sub = kind === "out" ? "In since ".concat(fmtTime(o.since), " \xB7 ").concat(dur(Date.now() - new Date(o.since))) : "Clocked in at ".concat(fmtTime(o.since));
         cls = kind === "out" ? " open" : "";
       }
       return '<button class="ag-btn'.concat(cls, '" data-clock="').concat(kind, '" data-ag="').concat(a.id, '" ').concat(busy ? "disabled" : "", ">\n      ").concat(agIco(a), '<span class="ag-main"><span class="ag-name">').concat(esc(a.name), '</span><span class="ag-sub').concat(o ? " on" : "", '" style="display:block">').concat(esc(sub), '</span></span>\n      <span class="ag-go ').concat(kind, '">').concat(ic(kind === "in" ? "login" : "logout"), "</span></button>");
     }
     function drawClock() {
-      if (!S) return;
+      withState("v-clock", "Clock", drawClockInner);
+    }
+    function drawClockInner() {
       const test = S.mode === "test";
       const ags = S.agencies || [];
       $("v-clock").innerHTML = '\n      <div class="ph"><div class="ph-l"><div class="ph-ico">'.concat(ic("clock"), '</div><div><h1>Clock</h1><div class="ph-sub">Tap when you start or stop work</div></div></div>\n        <span class="badge ').concat(test ? "" : "live", '">').concat(test ? "Test mode" : "Live", '</span></div>\n      <div id="remind"></div>\n      <div class="top-row">\n        <div class="card"><div id="result" class="result"></div></div>\n        <div class="card"><label class="tog"><span class="tog-ico">').concat(ic("headphones"), '</span><span class="tog-main"><span class="tog-t" style="display:block">Listen live</span><span class="muted small">Rings your cell first so you hear the call</span></span>\n          <input id="listen" type="checkbox" class="switch" ').concat(S.settings.listen_live ? "checked" : "", '></label></div>\n      </div>\n      <div class="clock-cards">\n        <div class="cc"><div class="cc-h in"><span class="dot">').concat(ic("login"), '</span><div><b>Clock In</b><span>Starting work</span></div></div>\n          <div class="cc-list">').concat(ags.map((a) => agBtn(a, "in")).join("") || '<div class="empty">Add an agency in Settings</div>', '</div></div>\n        <div class="cc"><div class="cc-h out"><span class="dot">').concat(ic("logout"), '</span><div><b>Clock Out</b><span>Done with work</span></div></div>\n          <div class="cc-list">').concat(ags.map((a) => agBtn(a, "out")).join("") || '<div class="empty">Add an agency in Settings</div>', "</div></div>\n      </div>");
@@ -203,7 +330,7 @@ try {
       if (!ag) return;
       const listen = !!S.settings.listen_live;
       const sub = (S.mode === "test" ? "Test mode: the call is simulated. " : "") + (listen ? "Your cell rings first. Pick up and you'll hear it dial ".concat(ag.name, " and press the keys.") : "Calls ".concat(ag.name, " at ").concat(pretty(ag.clock_number), " and presses the ").concat(kind === "in" ? "clock-in" : "clock-out", " keys."));
-      if (!await confirmSheet("".concat(kind === "in" ? "Clock in" : "Clock out", " · ").concat(ag.name, "?"), sub)) return;
+      if (!await confirmSheet("".concat(kind === "in" ? "Clock in" : "Clock out", " \xB7 ").concat(ag.name, "?"), sub)) return;
       await placeCall(kind, ag.id, () => {
         drawResult();
       });
@@ -218,7 +345,7 @@ try {
       busy = true;
       document.querySelectorAll("[data-clock],[data-test]").forEach((x) => x.disabled = true);
       try {
-        const d = await api("/call", { method: "POST", body: { action, agency_id: agencyId, listen: !!S.settings.listen_live } });
+        const d = await api("/call", { method: "POST", timeout: 6e4, body: { action, agency_id: agencyId, listen: !!S.settings.listen_live } });
         cur = d.attempt;
         onUpdate(cur);
         const t0 = Date.now();
@@ -258,15 +385,15 @@ try {
       const od = overdue();
       for (const o of od) {
         const key = "clk_reminded_" + o.agency_id + "_" + o.since;
-        if (localStorage.getItem(key)) continue;
-        localStorage.setItem(key, "1");
+        if (store.get(key)) continue;
+        store.set(key, "1");
         const a = agById(o.agency_id);
         const body = "Still clocked in with ".concat((a == null ? void 0 : a.name) || "an agency", " since ").concat(fmtTime(o.since), ". Open the app to clock out.");
         try {
           if ("Notification" in window && Notification.permission === "granted") {
             const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
-            if (reg) reg.showNotification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=3" });
-            else new Notification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=3" });
+            if (reg) reg.showNotification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=4" });
+            else new Notification("Clock out reminder", { body, tag: key, icon: "icons/icon-192.png?v=4" });
           }
         } catch (_) {
         }
@@ -315,16 +442,29 @@ try {
       return rows.sort((x, y) => y.t - x.t);
     }
     async function loadAttendance() {
-      drawAttendanceShell();
       try {
-        const { attempts } = await api("/history?days=" + range);
+        drawAttendanceShell();
+      } catch (e) {
+        viewError("v-attendance", "Couldn't show Attendance", e, loadAttendance);
+        return;
+      }
+      let attempts;
+      try {
+        const d = await api("/history?days=" + range);
+        attempts = Array.isArray(d.attempts) ? d.attempts : [];
+      } catch (err) {
+        viewError("v-attendance", "Couldn't load Attendance", err, loadAttendance);
+        return;
+      }
+      try {
         attAll = attempts;
         attRows = pair(attempts);
         page = 0;
-        drawAttendance();
-      } catch (err) {
-        $("attBody").innerHTML = '<div class="empty">'.concat(esc(err.message), "</div>");
+      } catch (e) {
+        viewError("v-attendance", "Couldn't show Attendance", e, loadAttendance);
+        return;
       }
+      drawAttendance();
     }
     function drawAttendanceShell() {
       $("v-attendance").innerHTML = '\n      <div class="ph"><div class="ph-l"><div class="ph-ico">'.concat(ic("cal"), '</div><div><h1>Attendance</h1><div class="ph-sub">Every clock in and out, with recordings</div></div></div>\n        <div class="seg" id="rangeSeg">').concat([[7, "Last 7 days"], [30, "Last 30 days"], [0, "All"]].map(([d, t]) => '<button data-range="'.concat(d, '" class="').concat(d === range ? "on" : "", '">').concat(t, "</button>")).join(""), '</div></div>\n      <div class="stats" id="stats"></div>\n      <div class="card" id="attBody"><div class="empty">Loading...</div></div>');
@@ -335,9 +475,12 @@ try {
       let h = "";
       if ((_a = r.in) == null ? void 0 : _a.has_recording) h += '<button class="play" data-play="'.concat(r.in.id, '">').concat(playIc(playingKey === r.in.id), "In</button>");
       if ((_b = r.out) == null ? void 0 : _b.has_recording) h += '<button class="play" data-play="'.concat(r.out.id, '">').concat(playIc(playingKey === r.out.id), "Out</button>");
-      return h ? '<div class="recs">'.concat(h, "</div>") : '<span class="muted">—</span>';
+      return h ? '<div class="recs">'.concat(h, "</div>") : '<span class="muted">\u2014</span>';
     }
     function drawAttendance() {
+      safeDraw("v-attendance", "Attendance", drawAttendanceInner, loadAttendance);
+    }
+    function drawAttendanceInner() {
       const sessions = attRows.filter((r) => r.in && r.out && r.status === "ok");
       const totalMs = sessions.reduce((s, r) => s + (new Date(r.out.created_at) - new Date(r.in.created_at)), 0);
       const calls = attAll.filter((a) => (a.action === "in" || a.action === "out") && ["done", "failed"].includes(a.status));
@@ -345,8 +488,8 @@ try {
       const stats = [
         ["list", "#2563eb", "#e8f0fe", sessions.length, "Total sessions"],
         ["clock", "#7c3aed", "#f3e8ff", (totalMs / 36e5).toFixed(1) + "h", "Total hours"],
-        ["timer", "#0891b2", "#cffafe", sessions.length ? dur(totalMs / sessions.length) : "—", "Avg session"],
-        ["pct", "#16a34a", "#dcfce7", calls.length ? Math.round(okCalls / calls.length * 100) + "%" : "—", "Success rate"]
+        ["timer", "#0891b2", "#cffafe", sessions.length ? dur(totalMs / sessions.length) : "\u2014", "Avg session"],
+        ["pct", "#16a34a", "#dcfce7", calls.length ? Math.round(okCalls / calls.length * 100) + "%" : "\u2014", "Success rate"]
       ];
       $("stats").innerHTML = stats.map(([i, c, bg, v, l]) => '<div class="stat"><span class="stat-ico" style="color:'.concat(c, ";background:").concat(bg, '">').concat(ic(i), '</span><div><div class="stat-v">').concat(v, '</div><div class="stat-l">').concat(l, "</div></div></div>")).join("");
       if (!attRows.length) {
@@ -361,13 +504,13 @@ try {
         const a = agById(a0.agency_id) || { name: a0.agency_name, color: "#94a3b8", icon: "briefcase" };
         return '<span class="agc"><i style="background:'.concat(esc(a.color), '">').concat(ic(a.icon), "</i>").concat(esc(a0.agency_name || a.name), "</span>");
       };
-      const tin = (r) => r.in ? fmtTime(r.in.created_at) + (r.in.status === "failed" ? " ✖" : "") : "—";
-      const tout = (r) => r.out ? fmtTime(r.out.created_at) + (r.out.status === "failed" ? " ✖" : "") : "—";
-      const len = (r) => r.in && r.out && r.status === "ok" ? dur(new Date(r.out.created_at) - new Date(r.in.created_at)) : "—";
+      const tin = (r) => r.in ? fmtTime(r.in.created_at) + (r.in.status === "failed" ? " \u2716" : "") : "\u2014";
+      const tout = (r) => r.out ? fmtTime(r.out.created_at) + (r.out.status === "failed" ? " \u2716" : "") : "\u2014";
+      const len = (r) => r.in && r.out && r.status === "ok" ? dur(new Date(r.out.created_at) - new Date(r.in.created_at)) : "\u2014";
       const isTest = (r) => (r.in || r.out).mode === "test" ? ' <span class="pill t">Test</span>' : "";
       const table = '<div class="wide-only"><table class="att"><thead><tr><th>Date</th><th>Agency</th><th>Clock in</th><th>Clock out</th><th>Session</th><th>Status</th><th>Recording</th></tr></thead><tbody>\n      '.concat(rows.map((r) => "<tr><td>".concat(fmtDate(r.t), "</td><td>").concat(agCell(r), "</td><td>").concat(tin(r), "</td><td>").concat(tout(r), "</td><td>").concat(len(r), "</td><td>").concat(PILL[r.status]).concat(isTest(r), "</td><td>").concat(recBtns(r), "</td></tr>")).join(""), "\n      </tbody></table></div>");
       const cards = '<div class="narrow-only att-cards">'.concat(rows.map((r) => '<div class="ac">\n      <div class="ac-top">'.concat(agCell(r), "<span>").concat(PILL[r.status]).concat(isTest(r), '</span></div>\n      <div class="ac-grid"><div><b>Date</b>').concat(fmtDayShort(r.t), "</div><div><b>In</b>").concat(tin(r), "</div><div><b>Out</b>").concat(tout(r), '</div></div>\n      <div class="ac-foot"><span class="small muted">Session: <b style="color:var(--ink)">').concat(len(r), "</b></span>").concat(recBtns(r), "</div></div>")).join(""), "</div>");
-      $("attBody").innerHTML = table + cards + '<div class="pager"><button class="btn small" data-pg="-1" '.concat(page ? "" : "disabled", ">&#8249; Prev</button><span>Page ").concat(page + 1, " of ").concat(pages, " · ").concat(attRows.length, ' rows</span><button class="btn small" data-pg="1" ').concat(page < pages - 1 ? "" : "disabled", ">Next &#8250;</button></div>");
+      $("attBody").innerHTML = table + cards + '<div class="pager"><button class="btn small" data-pg="-1" '.concat(page ? "" : "disabled", ">&#8249; Prev</button><span>Page ").concat(page + 1, " of ").concat(pages, " \xB7 ").concat(attRows.length, ' rows</span><button class="btn small" data-pg="1" ').concat(page < pages - 1 ? "" : "disabled", ">Next &#8250;</button></div>");
     }
     document.addEventListener("click", async (e) => {
       const rg = e.target.closest("[data-range]");
@@ -417,10 +560,12 @@ try {
       }
     });
     function drawSettings() {
-      if (!S) return;
+      withState("v-settings", "Settings", drawSettingsInner);
+    }
+    function drawSettingsInner() {
       const s = S.settings, ags = S.agencies || [];
       const notif = "Notification" in window ? Notification.permission : "unsupported";
-      $("v-settings").innerHTML = '\n      <div class="ph"><div class="ph-l"><div class="ph-ico">'.concat(ic("sliders"), '</div><div><h1>Settings</h1><div class="ph-sub">Agencies, phone numbers and keys</div></div></div>\n        <span class="badge ').concat(S.mode === "test" ? "" : "live", '">').concat(S.mode === "test" ? "Test mode" : "Live", '</span></div>\n      <div class="set-grid">\n        <div class="card">\n          <div class="card-h"><h2>Agencies</h2><button class="btn small primary" id="addAg">').concat(ic("plus"), "Add</button></div>\n          ").concat(ags.map((a) => '<div class="ag-row">'.concat(agIco(a), '<div class="ag-main"><div class="ag-name">').concat(esc(a.name), '</div><div class="ag-sub">').concat(esc(pretty(a.clock_number)), " · in ").concat(a.in_steps.length, " steps, out ").concat(a.out_steps.length, ' steps</div></div><button class="btn small ghost" data-edit="').concat(a.id, '">Edit</button></div>')).join("") || '<div class="empty">No agencies yet</div>', '\n        </div>\n        <div>\n          <form class="card" id="setForm" novalidate>\n            <h2 style="margin-bottom:12px">You</h2>\n            <label class="f">Your cell<input id="workerCell" type="tel" inputmode="tel" value="').concat(esc(pretty(s.worker_cell)), '" placeholder="(555) 555-0123"><span class="muted small" style="font-weight:400">Rings you for "Listen live" and test calls</span></label>\n            <div class="seq">\n              <label class="tog"><span class="tog-ico">').concat(ic("bell"), '</span><span class="tog-main"><span class="tog-t" style="display:block">Remind me to clock out</span><span class="muted small">Only a reminder. It never calls.</span></span><input id="remindOut" type="checkbox" class="switch" ').concat(s.remind_out ? "checked" : "", '></label>\n              <label class="f" style="margin-top:12px">Remind me after (hours clocked in)<input id="remindHours" type="number" inputmode="decimal" min="0.5" max="24" step="0.5" value="').concat(esc(s.remind_hours), '"></label>\n              ').concat(notif === "default" ? '<button type="button" class="btn small ghost" id="askNotif">Allow notifications</button>' : notif === "granted" ? '<span class="muted small">Notifications are on. You’ll also see a banner on the Clock screen.</span>' : '<span class="muted small">You’ll see a banner on the Clock screen. (On iPhone, add the app to your Home Screen to allow notifications.)</span>', '\n            </div>\n            <div class="seq">\n              <label class="tog"><span class="tog-ico">').concat(ic("flask"), '</span><span class="tog-main"><span class="tog-t" style="display:block">Test mode</span><span class="muted small">').concat(S.telnyxReady ? "On: calls are simulated. Off: real calls." : "On until the phone line is connected. Calls are simulated.", '</span></span><input id="forceTest" type="checkbox" class="switch" ').concat(!S.telnyxReady || s.force_test ? "checked" : "", " ").concat(S.telnyxReady ? "" : "disabled", '></label>\n            </div>\n            <button class="btn primary wide" type="submit" id="saveBtn">Save</button>\n            <p id="setMsg" class="msg" hidden></p>\n          </form>\n          <div class="card">\n            <h2>Test history</h2>\n            <p class="muted small">Removes every Test-mode entry from Attendance (sample data and simulated calls). Real calls are kept.</p>\n            <button class="btn danger wide" id="clearTest">Clear test history</button>\n          </div>\n          <button class="btn ghost wide" id="logoutBtn">').concat(ic("logout"), "Log out</button>\n        </div>\n      </div>");
+      $("v-settings").innerHTML = '\n      <div class="ph"><div class="ph-l"><div class="ph-ico">'.concat(ic("sliders"), '</div><div><h1>Settings</h1><div class="ph-sub">Agencies, phone numbers and keys</div></div></div>\n        <span class="badge ').concat(S.mode === "test" ? "" : "live", '">').concat(S.mode === "test" ? "Test mode" : "Live", '</span></div>\n      <div class="set-grid">\n        <div class="card">\n          <div class="card-h"><h2>Agencies</h2><button class="btn small primary" id="addAg">').concat(ic("plus"), "Add</button></div>\n          ").concat(ags.map((a) => '<div class="ag-row">'.concat(agIco(a), '<div class="ag-main"><div class="ag-name">').concat(esc(a.name), '</div><div class="ag-sub">').concat(esc(pretty(a.clock_number)), " \xB7 in ").concat(a.in_steps.length, " steps, out ").concat(a.out_steps.length, ' steps</div></div><button class="btn small ghost" data-edit="').concat(a.id, '">Edit</button></div>')).join("") || '<div class="empty">No agencies yet</div>', '\n        </div>\n        <div>\n          <form class="card" id="setForm" novalidate>\n            <h2 style="margin-bottom:12px">You</h2>\n            <label class="f">Your cell<input id="workerCell" type="tel" inputmode="tel" value="').concat(esc(pretty(s.worker_cell)), '" placeholder="(555) 555-0123"><span class="muted small" style="font-weight:400">Rings you for "Listen live" and test calls</span></label>\n            <div class="seq">\n              <label class="tog"><span class="tog-ico">').concat(ic("bell"), '</span><span class="tog-main"><span class="tog-t" style="display:block">Remind me to clock out</span><span class="muted small">Only a reminder. It never calls.</span></span><input id="remindOut" type="checkbox" class="switch" ').concat(s.remind_out ? "checked" : "", '></label>\n              <label class="f" style="margin-top:12px">Remind me after (hours clocked in)<input id="remindHours" type="number" inputmode="decimal" min="0.5" max="24" step="0.5" value="').concat(esc(s.remind_hours), '"></label>\n              ').concat(notif === "default" ? '<button type="button" class="btn small ghost" id="askNotif">Allow notifications</button>' : notif === "granted" ? '<span class="muted small">Notifications are on. You\u2019ll also see a banner on the Clock screen.</span>' : '<span class="muted small">You\u2019ll see a banner on the Clock screen. (On iPhone, add the app to your Home Screen to allow notifications.)</span>', '\n            </div>\n            <div class="seq">\n              <label class="tog"><span class="tog-ico">').concat(ic("flask"), '</span><span class="tog-main"><span class="tog-t" style="display:block">Test mode</span><span class="muted small">').concat(S.telnyxReady ? "On: calls are simulated. Off: real calls." : "On until the phone line is connected. Calls are simulated.", '</span></span><input id="forceTest" type="checkbox" class="switch" ').concat(!S.telnyxReady || s.force_test ? "checked" : "", " ").concat(S.telnyxReady ? "" : "disabled", '></label>\n            </div>\n            <button class="btn primary wide" type="submit" id="saveBtn">Save</button>\n            <p id="setMsg" class="msg" hidden></p>\n          </form>\n          <div class="card">\n            <h2>Test history</h2>\n            <p class="muted small">Removes every Test-mode entry from Attendance (sample data and simulated calls). Real calls are kept.</p>\n            <button class="btn danger wide" id="clearTest">Clear test history</button>\n          </div>\n          <button class="btn ghost wide" id="logoutBtn">').concat(ic("logout"), "Log out</button>\n        </div>\n      </div>");
       $("logoutBtn").onclick = logout;
       $("addAg").onclick = () => editAgency(null);
       if ($("askNotif")) $("askNotif").onclick = async () => {
@@ -455,7 +600,7 @@ try {
           }
           drawSettings();
           const m = $("setMsg");
-          m.textContent = "Saved ✓";
+          m.textContent = "Saved \u2713";
           m.className = "msg ok";
           m.hidden = false;
         } catch (err) {
@@ -560,7 +705,7 @@ try {
         const ag = agById(tb.dataset.test);
         emsg("Starting test call...", true, "tMsg");
         const a = await placeCall("test", ag.id, (a2) => emsg(a2.stage || "Calling...", a2.status !== "failed", "tMsg"));
-        emsg(a.status === "done" ? "✅ Test call finished. Recording is in Attendance history." : "❌ " + (a.stage || "Test call failed"), a.status === "done", "tMsg");
+        emsg(a.status === "done" ? "\u2705 Test call finished. Recording is in Attendance history." : "\u274C " + (a.stage || "Test call failed"), a.status === "done", "tMsg");
       }
     });
     async function saveAgency() {
@@ -571,7 +716,7 @@ try {
         await loadState();
         const wasNew = !ed.id;
         ed = JSON.parse(JSON.stringify(d.agency));
-        emsg("Saved ✓", true);
+        emsg("Saved \u2713", true);
         drawSettings();
         if (wasNew) {
           delete $("sheet").dataset.lock;
@@ -586,7 +731,7 @@ try {
     }
     function regSW() {
       try {
-        if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=3").catch(() => {
+        if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=4").catch(() => {
         });
       } catch (_) {
       }
@@ -598,8 +743,9 @@ try {
     (async () => {
       if (token) {
         try {
-          await loadState();
-        } catch (_) {
+          await loadStateOnce();
+        } catch (e) {
+          stateErr = e;
         }
       }
       $("bootMsg").hidden = true;

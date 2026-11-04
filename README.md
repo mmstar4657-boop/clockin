@@ -1,3 +1,3 @@
 # Clock In
 
-A small private web app with two buttons. Static front end only; no keys or secrets in this repo.
+A small private clock-in web app. Static front end only; no keys or secrets in this repo.

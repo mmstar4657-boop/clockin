@@ -183,8 +183,38 @@ try {
       route();
     }
     $("logoutSide").addEventListener("click", logout);
+    function unwrap(b64) {
+      const bin = atob(String(b64 || ""));
+      let txt;
+      if (typeof TextDecoder !== "undefined") {
+        const u = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        txt = new TextDecoder("utf-8").decode(u);
+      } else {
+        txt = decodeURIComponent(escape(bin));
+      }
+      return JSON.parse(txt);
+    }
+    async function fetchState() {
+      let first;
+      try {
+        const w = await api("/h2");
+        const d = unwrap(w.d);
+        if (d && typeof d === "object") return d;
+        first = new Error("Unexpected answer from the server.");
+      } catch (e) {
+        if (!token) throw e;
+        first = e;
+      }
+      try {
+        return await api("/state");
+      } catch (e2) {
+        if (!token) throw e2;
+        throw first;
+      }
+    }
     async function loadState() {
-      const d = await api("/state");
+      const d = await fetchState();
       if (!d.settings || typeof d.settings !== "object" || !Array.isArray(d.agencies)) throw new Error("The server's answer was missing the app settings. Try again.");
       S = d;
     }

@@ -4,140 +4,48 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#0b1f4d">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Clock In">
 <title>Clock In</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="style.css?v=1">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
-<div id="app">
-
-  <!-- Login -->
-  <section id="login" class="view login" hidden>
-    <div class="login-card">
-      <img src="icons/icon-192.png" alt="" class="login-icon">
-      <h1>Clock In</h1>
-      <p class="muted">Enter your password</p>
-      <form id="loginForm" autocomplete="on">
-        <input type="text" name="username" value="worker" autocomplete="username" hidden>
-        <input id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
-        <button class="btn primary wide" type="submit">Log in</button>
-        <p id="loginErr" class="err" hidden></p>
-      </form>
-    </div>
-  </section>
-
-  <!-- Main -->
-  <section id="home" class="view" hidden>
-    <header class="top">
-      <h1>Clock In</h1>
-      <span id="modeBadge" class="badge"></span>
-    </header>
-
-    <div id="result" class="result idle">
-      <div id="resultIcon" class="result-icon"></div>
-      <div>
-        <div id="resultTitle" class="result-title">Ready</div>
-        <div id="resultSub" class="result-sub muted"></div>
-      </div>
-    </div>
-
-    <div class="big-buttons">
-      <button id="btnIn" class="big in"><span class="big-ico">&#9654;</span>Clock In</button>
-      <button id="btnOut" class="big out"><span class="big-ico">&#9632;</span>Clock Out</button>
-    </div>
-
-    <label class="row-toggle">
-      <div>
-        <div class="row-title">Listen live</div>
-        <div class="muted small">Rings your cell first, so you hear the call</div>
-      </div>
-      <input id="listen" type="checkbox" class="switch">
-    </label>
-  </section>
-
-  <!-- History -->
-  <section id="history" class="view" hidden>
-    <header class="top"><h1>History</h1><button id="refreshHist" class="btn ghost small">Refresh</button></header>
-    <div id="histList" class="hist"></div>
-  </section>
-
-  <!-- Settings -->
-  <section id="settings" class="view" hidden>
-    <header class="top"><h1>Settings</h1></header>
-    <form id="setForm" class="card form" novalidate>
-      <label>Clock-in phone number
-        <input id="clockNumber" type="tel" inputmode="tel" placeholder="(555) 555-0100">
-      </label>
-      <label>Your cell
-        <input id="workerCell" type="tel" inputmode="tel" placeholder="(555) 555-0123">
-        <span class="muted small">Used for "Listen live" and the test call</span>
-      </label>
-
-      <div class="seq">
-        <div class="seq-head"><h2>Clock-in keys</h2></div>
-        <div id="inSteps" class="steps"></div>
-        <div class="seq-add">
-          <button type="button" class="btn ghost small" data-add="in" data-t="wait">+ Wait</button>
-          <button type="button" class="btn ghost small" data-add="in" data-t="press">+ Press keys</button>
-        </div>
-      </div>
-
-      <div class="seq">
-        <div class="seq-head"><h2>Clock-out keys</h2></div>
-        <div id="outSteps" class="steps"></div>
-        <div class="seq-add">
-          <button type="button" class="btn ghost small" data-add="out" data-t="wait">+ Wait</button>
-          <button type="button" class="btn ghost small" data-add="out" data-t="press">+ Press keys</button>
-        </div>
-      </div>
-
-      <label class="row-toggle inset" id="forceRow">
-        <div>
-          <div class="row-title">Test mode</div>
-          <div id="forceSub" class="muted small"></div>
-        </div>
-        <input id="forceTest" type="checkbox" class="switch">
-      </label>
-
-      <button class="btn primary wide" type="submit" id="saveBtn">Save</button>
-      <p id="setMsg" class="small" hidden></p>
+<div id="login" class="login" hidden>
+  <div class="login-card">
+    <img src="icons/icon-192.png" alt="" class="login-icon">
+    <h1>Clock In</h1>
+    <p class="muted">Enter your password</p>
+    <form id="loginForm" autocomplete="on">
+      <input type="text" name="username" value="worker" autocomplete="username" hidden>
+      <input id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
+      <button class="btn primary wide" type="submit">Log in</button>
+      <p id="loginErr" class="err" hidden></p>
     </form>
-
-    <div class="card">
-      <h2>Test call</h2>
-      <p class="muted small">Rings your cell and plays the clock-in keys to you, so you can check the timing. Nothing is sent to the clock-in line.</p>
-      <button id="testBtn" class="btn wide">Make a test call</button>
-      <p id="testMsg" class="small" hidden></p>
-    </div>
-
-    <button id="logout" class="btn ghost wide">Log out</button>
-    <p class="muted tiny center" id="ver"></p>
-  </section>
-
-  <!-- Tab bar -->
-  <nav id="tabs" class="tabs" hidden>
-    <a href="#home" data-tab="home"><span>&#9201;</span>Clock</a>
-    <a href="#history" data-tab="history"><span>&#9776;</span>History</a>
-    <a href="#settings" data-tab="settings"><span>&#9881;</span>Settings</a>
-  </nav>
-
-  <!-- Confirm sheet -->
-  <div id="sheet" class="sheet" hidden>
-    <div class="sheet-card">
-      <h2 id="sheetTitle">Call now?</h2>
-      <p id="sheetSub" class="muted"></p>
-      <button id="sheetYes" class="btn primary wide">Call now</button>
-      <button id="sheetNo" class="btn ghost wide">Cancel</button>
-    </div>
   </div>
 </div>
-<script src="app.js?v=1"></script>
+
+<div id="shell" class="shell" hidden>
+  <aside class="side">
+    <div class="brand"><img src="icons/icon-192.png" alt=""><span>Clock In</span></div>
+    <nav class="nav" id="nav"></nav>
+    <button class="nav-out" id="logoutSide"></button>
+  </aside>
+  <main class="main">
+    <section id="v-clock" class="view" hidden></section>
+    <section id="v-attendance" class="view" hidden></section>
+    <section id="v-settings" class="view" hidden></section>
+  </main>
+  <nav class="tabs" id="tabs"></nav>
+</div>
+
+<div id="sheet" class="sheet" hidden><div class="sheet-card" id="sheetCard"></div></div>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js?v=2"></script>
 </body>
 </html>
